@@ -19,14 +19,14 @@ module.exports = class MessageCounter {
     }
 
     start() {
-        BdApi.showToast("MessageCounter is starting...", {type: "info"});
+        console.log("MessageCounter: Starting...");
         this.initialize();
         this.createCounterDisplay();
         this.setupMessageCounter();
     }
 
     stop() {
-        BdApi.showToast("MessageCounter is stopping...", {type: "info"});
+        console.log("MessageCounter: Stopping...");
         if (this.displayElement) {
             this.displayElement.remove();
         }
@@ -60,21 +60,24 @@ module.exports = class MessageCounter {
 
     getCurrentServerId() {
         try {
-            const pathMatch = window.location.pathname.match(/\/channels\/(\d+)/);
-            if (pathMatch) {
-                const serverId = pathMatch[1];
-                console.log("[MessageCounter] Current server ID:", serverId);
-                return serverId;
-            }
+            // Try to get server ID from URL first
+            const match = window.location.pathname.match(/\/channels\/(\d+)/);
+            return match ? match[1] : null;
         } catch (e) {
-            console.error("[MessageCounter] Error getting server ID:", e);
+            console.error('Error getting server ID:', e);
+            return null;
         }
-        return null;
     }
 
     setupMessageCounter() {
-        const config = { childList: true, subtree: true };
-        
+        const config = { 
+            childList: true, 
+            subtree: true,
+            attributes: false,
+            characterData: false
+        };
+
+        // Create our message observer
         this.observer = new MutationObserver((mutations) => {
             const currentServerId = this.getCurrentServerId();
             
@@ -82,27 +85,21 @@ module.exports = class MessageCounter {
                 for (const mutation of mutations) {
                     for (const node of mutation.addedNodes) {
                         if (node.nodeType === 1) { // ELEMENT_NODE
-                            // Check for the li wrapper of messages
-                            if (node.tagName === 'LI' && node.getAttribute('class')?.includes('messageListItem')) {
-                                this.messageCount++;
-                                this.updateCounter();
-                                console.log("[MessageCounter] Message counted!");
-                                continue;
-                            }
-                            
-                            // Check for message content
-                            if (node.querySelector('[class*="messageContent-"]')) {
-                                this.messageCount++;
-                                this.updateCounter();
-                                console.log("[MessageCounter] Message content counted!");
-                                continue;
-                            }
-                            
-                            // Check for message wrapper
-                            if (node.querySelector('[class*="message-"]')) {
-                                this.messageCount++;
-                                this.updateCounter();
-                                console.log("[MessageCounter] Message wrapper counted!");
+                            // Check for any message-related elements
+                            const isMessage = 
+                                node.classList?.contains('message-') ||
+                                node.classList?.contains('messageListItem-') ||
+                                node.classList?.contains('full-motion') ||
+                                node.querySelector?.('[class*="message-"], [class*="messageListItem-"]');
+
+                            if (isMessage) {
+                                // Verify it's a new message by checking for timestamp
+                                const hasTimestamp = node.querySelector('[class*="timestamp-"]');
+                                if (hasTimestamp) {
+                                    console.log("MessageCounter: New message detected");
+                                    this.messageCount++;
+                                    this.updateCounter();
+                                }
                             }
                         }
                     }
@@ -111,34 +108,48 @@ module.exports = class MessageCounter {
         });
 
         // Function to start observing chat
-        const setupObserver = () => {
-            // Try to find the chat container
-            const chatContainer = document.querySelector(
-                '[class*="chatContent-"], ' +
-                '[class*="messagesWrapper-"], ' +
-                '[class*="scroller-"]'
-            );
+        const startObserving = () => {
+            // Try multiple possible selectors for the chat container
+            const chatSelectors = [
+                '.chat-',
+                '.chatContent-',
+                '.messages-',
+                '.scroller-',
+                '.show-redesigned-icons',
+                '[class*="chat-"]',
+                '[class*="chatContent-"]',
+                '[class*="messages-"]'
+            ];
+
+            let chatContainer = null;
+            for (const selector of chatSelectors) {
+                chatContainer = document.querySelector(selector);
+                if (chatContainer) break;
+            }
 
             if (chatContainer && !this.observer.observing) {
-                console.log("[MessageCounter] Found chat container, setting up observer");
+                console.log("MessageCounter: Found chat container, setting up observer");
                 this.observer.observe(chatContainer, config);
                 this.observer.observing = true;
             }
         };
 
-        // Initial setup
-        setupObserver();
+        // Try to start observing immediately
+        startObserving();
 
-        // Watch for chat container to be added
+        // Also watch for chat area to be added
         const appObserver = new MutationObserver(() => {
             if (!this.observer.observing) {
-                setupObserver();
+                startObserving();
             }
         });
 
         const app = document.querySelector('#app-mount');
         if (app) {
-            appObserver.observe(app, { childList: true, subtree: true });
+            appObserver.observe(app, {
+                childList: true,
+                subtree: true
+            });
         }
     }
 }
