@@ -7,17 +7,26 @@
  */
 
 module.exports = class MessageCounter {
-    start() {
-        console.log("MessageCounter: Starting...");
+    constructor() {
+        this.initialize();
+    }
+
+    initialize() {
         this.messageCount = 0;
         this.displayElement = null;
+        this.observer = null;
         this.targetServerId = "1328046584390225950";
+    }
+
+    start() {
+        BdApi.showToast("MessageCounter is starting...", {type: "info"});
+        this.initialize();
         this.createCounterDisplay();
         this.setupMessageCounter();
     }
 
     stop() {
-        console.log("MessageCounter: Stopping...");
+        BdApi.showToast("MessageCounter is stopping...", {type: "info"});
         if (this.displayElement) {
             this.displayElement.remove();
         }
@@ -50,56 +59,86 @@ module.exports = class MessageCounter {
     }
 
     getCurrentServerId() {
-        const match = window.location.href.match(/channels\/(\d+)/);
-        return match ? match[1] : null;
+        try {
+            const pathMatch = window.location.pathname.match(/\/channels\/(\d+)/);
+            if (pathMatch) {
+                const serverId = pathMatch[1];
+                console.log("[MessageCounter] Current server ID:", serverId);
+                return serverId;
+            }
+        } catch (e) {
+            console.error("[MessageCounter] Error getting server ID:", e);
+        }
+        return null;
     }
 
     setupMessageCounter() {
+        const config = { childList: true, subtree: true };
+        
         this.observer = new MutationObserver((mutations) => {
-            mutations.forEach((mutation) => {
-                mutation.addedNodes.forEach((node) => {
-                    if (node.nodeType === 1) { // Check if it's an element node
-                        const isMessage = 
-                            node.classList?.contains('message-') || 
-                            node.querySelector?.('[class*="message-"]');
-                            
-                        if (isMessage) {
-                            const currentServerId = this.getCurrentServerId();
-                            if (currentServerId === this.targetServerId) {
+            const currentServerId = this.getCurrentServerId();
+            
+            if (currentServerId === this.targetServerId) {
+                for (const mutation of mutations) {
+                    for (const node of mutation.addedNodes) {
+                        if (node.nodeType === 1) { // ELEMENT_NODE
+                            // Check for the li wrapper of messages
+                            if (node.tagName === 'LI' && node.getAttribute('class')?.includes('messageListItem')) {
                                 this.messageCount++;
                                 this.updateCounter();
+                                console.log("[MessageCounter] Message counted!");
+                                continue;
+                            }
+                            
+                            // Check for message content
+                            if (node.querySelector('[class*="messageContent-"]')) {
+                                this.messageCount++;
+                                this.updateCounter();
+                                console.log("[MessageCounter] Message content counted!");
+                                continue;
+                            }
+                            
+                            // Check for message wrapper
+                            if (node.querySelector('[class*="message-"]')) {
+                                this.messageCount++;
+                                this.updateCounter();
+                                console.log("[MessageCounter] Message wrapper counted!");
                             }
                         }
                     }
-                });
-            });
+                }
+            }
         });
 
-        // Start observing the chat area
+        // Function to start observing chat
         const setupObserver = () => {
-            const chatArea = document.querySelector('[class*="chat-"], [class*="chatContent-"], [class*="messages-"]');
-            if (chatArea) {
-                this.observer.observe(chatArea, {
-                    childList: true,
-                    subtree: true
-                });
+            // Try to find the chat container
+            const chatContainer = document.querySelector(
+                '[class*="chatContent-"], ' +
+                '[class*="messagesWrapper-"], ' +
+                '[class*="scroller-"]'
+            );
+
+            if (chatContainer && !this.observer.observing) {
+                console.log("[MessageCounter] Found chat container, setting up observer");
+                this.observer.observe(chatContainer, config);
+                this.observer.observing = true;
             }
         };
 
-        // Try to set up immediately
+        // Initial setup
         setupObserver();
 
-        // Also watch for chat area to be added
+        // Watch for chat container to be added
         const appObserver = new MutationObserver(() => {
-            setupObserver();
+            if (!this.observer.observing) {
+                setupObserver();
+            }
         });
 
         const app = document.querySelector('#app-mount');
         if (app) {
-            appObserver.observe(app, {
-                childList: true,
-                subtree: true
-            });
+            appObserver.observe(app, { childList: true, subtree: true });
         }
     }
 }
